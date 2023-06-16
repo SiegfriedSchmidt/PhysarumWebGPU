@@ -28,6 +28,7 @@ export default class {
     evaporateSpeed: number
     deffuseSpeed: number
     agentParamsCount: number
+    wobbling: number
 
     // API Data Structures
     adapter: GPUAdapter;
@@ -48,6 +49,7 @@ export default class {
     uniformEvaporateSpeedArray: Float32Array
     uniformDiffuseSpeedArray: Float32Array
     uniformNumAgentsArray: Uint32Array
+    uniformWobblingArray: Float32Array
 
     // Buffers
     vertexBuffer: GPUBuffer
@@ -59,6 +61,7 @@ export default class {
     uniformEvaporateSpeedBuffer: GPUBuffer
     uniformDiffuseSpeedBuffer: GPUBuffer
     uniformNumAgentsBuffer: GPUBuffer
+    uniformWobblingBuffer: GPUBuffer
 
     // Layouts
     vertexBufferLayout: GPUVertexBufferLayout
@@ -76,17 +79,18 @@ export default class {
     constructor(canvas: HTMLCanvasElement) {
         this.canvas = canvas
         this.step = 0
-        this.fieldResolution = [canvas.width / 4, canvas.height / 4];
+        this.fieldResolution = [canvas.width, canvas.height];
         this.resolution = [canvas.width, canvas.height];
         this.workgroupSize = 8;
 
-        this.numAgents = 512
+        this.numAgents = 500000
         this.workgroupProcessFieldCount = [Math.ceil(this.fieldResolution[0] / this.workgroupSize),
             Math.ceil(this.fieldResolution[1] / this.workgroupSize)];
         this.workgroupUpdateAgentsCount = Math.ceil(this.numAgents / (this.workgroupSize * this.workgroupSize))
-        this.evaporateSpeed = 0.003
+        this.evaporateSpeed = 0.01
         this.deffuseSpeed = 0.3
-        this.agentParamsCount = 4
+        this.agentParamsCount = 16
+        this.wobbling = 0
     }
 
     update() {
@@ -104,10 +108,31 @@ export default class {
     initAgents() {
         for (let i = 0; i < this.numAgents; i++) {
             const id = i * this.agentParamsCount
-            this.agentsArray[id] = getRandomValue(10, this.fieldResolution[0] - 10)
-            this.agentsArray[id + 1] = getRandomValue(10, this.fieldResolution[1] - 10)
-            this.agentsArray[id + 2] = 0.4
-            this.agentsArray[id + 3] = Math.random() * Math.PI * 2
+            //     pos: vec2f
+            this.agentsArray[id] = this.fieldResolution[0] / 2
+            this.agentsArray[id + 1] = this.fieldResolution[1] / 2
+
+            //     angle: f32
+            this.agentsArray[id + 2] = Math.random() * Math.PI * 2
+
+            //     speed: f32
+            this.agentsArray[id + 3] = 1
+
+            //     sensorLength: f32
+            this.agentsArray[id + 4] = 4
+
+            //     sensorSize: f32
+            this.agentsArray[id + 5] = 3
+
+            //     turnAngles: vec3f
+            this.agentsArray[id + 8] = radians(-60)
+            this.agentsArray[id + 9] = radians(0)
+            this.agentsArray[id + 10] = radians(60)
+
+            //     sensorAngles: vec3f
+            this.agentsArray[id + 12] = radians(-60)
+            this.agentsArray[id + 13] = radians(0)
+            this.agentsArray[id + 14] = radians(60)
         }
     }
 
@@ -172,14 +197,13 @@ export default class {
         this.uniformResolutionArray = new Uint32Array(this.resolution);
         this.uniformFieldResolutionArray = new Uint32Array(this.fieldResolution);
         this.fieldStateArray = new Float32Array(this.fieldResolution[0] * this.fieldResolution[1]);
-        // for (let i = 0; i < this.fieldStateArray.length; i++) {
-        //     this.fieldStateArray[i] = Math.random()
-        // }
         this.agentsArray = new Float32Array(length = this.numAgents * this.agentParamsCount);
         this.initAgents()
+        console.log(this.agentsArray.byteLength)
         this.uniformEvaporateSpeedArray = new Float32Array([this.evaporateSpeed])
         this.uniformDiffuseSpeedArray = new Float32Array([this.deffuseSpeed])
         this.uniformNumAgentsArray = new Uint32Array([this.numAgents])
+        this.uniformWobblingArray = new Float32Array([this.wobbling])
     }
 
     createBuffers() {
@@ -195,6 +219,7 @@ export default class {
         this.uniformEvaporateSpeedBuffer = this.createBuffer('Evaporate speed buffer', this.uniformEvaporateSpeedArray, GPUBufferUsage.UNIFORM)
         this.uniformDiffuseSpeedBuffer = this.createBuffer('Diffuse speed buffer', this.uniformDiffuseSpeedArray, GPUBufferUsage.UNIFORM)
         this.uniformNumAgentsBuffer = this.createBuffer('Diffuse speed buffer', this.uniformDiffuseSpeedArray, GPUBufferUsage.UNIFORM)
+        this.uniformWobblingBuffer = this.createBuffer('Wobbling buffer', this.uniformWobblingArray, GPUBufferUsage.UNIFORM)
     }
 
     writeBuffers() {
@@ -208,6 +233,7 @@ export default class {
         this.writeBuffer(this.uniformEvaporateSpeedBuffer, this.uniformEvaporateSpeedArray)
         this.writeBuffer(this.uniformDiffuseSpeedBuffer, this.uniformDiffuseSpeedArray)
         this.writeBuffer(this.uniformNumAgentsBuffer, this.uniformNumAgentsArray)
+        this.writeBuffer(this.uniformWobblingBuffer, this.uniformWobblingArray)
     }
 
     createLayouts() {
@@ -250,6 +276,10 @@ export default class {
                 binding: 8,
                 visibility: GPUShaderStage.COMPUTE,
                 buffer: {type: "uniform"}
+            }, {
+                binding: 9,
+                visibility: GPUShaderStage.COMPUTE,
+                buffer: {type: "uniform"}
             }]
         });
         this.pipelineLayout = this.device.createPipelineLayout({
@@ -290,6 +320,9 @@ export default class {
                 }, {
                     binding: 8,
                     resource: {buffer: this.uniformNumAgentsBuffer}
+                }, {
+                    binding: 9,
+                    resource: {buffer: this.uniformWobblingBuffer}
                 }],
             }),
             this.device.createBindGroup({
@@ -322,6 +355,9 @@ export default class {
                 }, {
                     binding: 8,
                     resource: {buffer: this.uniformNumAgentsBuffer}
+                }, {
+                    binding: 9,
+                    resource: {buffer: this.uniformWobblingBuffer}
                 }],
             }),
         ];

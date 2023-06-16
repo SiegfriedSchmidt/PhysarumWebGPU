@@ -1,7 +1,11 @@
 struct Agent {
     pos: vec2f,
-    speed: f32,
     angle: f32,
+    speed: f32,
+    sensorLength: f32,
+    sensorSize: f32,
+    turnAngles: vec3f,
+    sensorAngles: vec3f,
 }
 const PI = 3.14159265359;
 
@@ -13,6 +17,7 @@ const PI = 3.14159265359;
 @group(0) @binding(6) var<uniform> evaporateSpeed: f32;
 @group(0) @binding(7) var<uniform> diffuseSpeed: f32;
 @group(0) @binding(8) var<uniform> numAgents: u32;
+@group(0) @binding(9) var<uniform> wobbling: f32;
 
 
 fn hash(state: f32) -> f32 {
@@ -30,12 +35,12 @@ fn getPos(pos: vec2u) -> u32 {
     return u32(pos.x + pos.y * u32(fieldRes.x));
 }
 
-fn checkBorder(x: f32, y: f32) -> bool {
-    return (x < 0 || x >= f32(fieldRes.x) || y < 0 || y >= f32(fieldRes.y));
+fn checkBorder(x: i32, y: i32) -> bool {
+    return (x < 0 || x >= i32(fieldRes.x) || y < 0 || y >= i32(fieldRes.y));
 }
 
 fn getVal(x: u32, y: u32) -> f32 {
-    if (checkBorder(f32(x), f32(y))) {
+    if (checkBorder(i32(x), i32(y))) {
         return 0;
     }
     return fieldStateOut[getPos(vec2u(x, y))];
@@ -47,7 +52,7 @@ fn lerp(start: f32, end: f32, t: f32) -> f32 {
 
 @compute @workgroup_size(8, 8)
 fn processField(@builtin(global_invocation_id) cell: vec3u) {
-    if (checkBorder(f32(cell.x), f32(cell.y))) {
+    if (checkBorder(i32(cell.x), i32(cell.y))) {
         return;
     }
 
@@ -67,20 +72,52 @@ fn processField(@builtin(global_invocation_id) cell: vec3u) {
     fieldStateOut[pos] = max(0, diffusedValue - evaporateSpeed);
 }
 
+fn sense(agent: Agent, sensorAngleOffset: f32) -> f32 {
+    let sensorAngle = agent.angle + sensorAngleOffset;
+    let sensorCentre = agent.pos + vec2f(cos(sensorAngle), sin(sensorAngle)) * agent.sensorLength;
+    var sum: f32 = 0;
+    for (var x: i32 = i32(-agent.sensorSize); x <= i32(agent.sensorSize); x++) {
+        for (var y: i32 = i32(-agent.sensorSize); y <= i32(agent.sensorSize); y++) {
+            let pos = vec2i(sensorCentre) + vec2i(x, y);
+            if (!checkBorder(pos.x, pos.y)) {
+                sum += fieldStateIn[getPos(vec2u(pos))];
+            }
+        }
+    }
+    return sum;
+}
+
 @compute @workgroup_size(64)
 fn updateAgents(@builtin(global_invocation_id) id: vec3u) {
     if (id.x >= numAgents) {
         return;
     }
     var agent = agents[id.x];
-    let direction = vec2f(cos(agent.angle), sin(agent.angle));
+    let random = hash(agent.pos.y * f32(fieldRes.x) + agent.pos.x + hash(f32(id.x)) * time);
+
+    let sensor1 = sense(agent, agent.sensorAngles.x);
+    let sensor2 = sense(agent, agent.sensorAngles.y);
+    let sensor3 = sense(agent, agent.sensorAngles.z);
+
+    var moveAngle: f32 = 0;
+    if (sensor1 > sensor2 && sensor1 > sensor3) {
+        moveAngle = agent.turnAngles.x;
+    } else if (sensor2 > sensor1 && sensor2 > sensor3) {
+        moveAngle = agent.turnAngles.y;
+    } else if (sensor3 > sensor1 && sensor2 > sensor2){
+        moveAngle = agent.turnAngles.z;
+    }
+
+    moveAngle += agent.angle + (random * 2 - 1) * wobbling;
+    let direction = vec2f(cos(moveAngle), sin(moveAngle));
     var newPos = agent.pos + direction * agent.speed;
-    if (checkBorder(newPos.x, newPos.y)) {
+
+    if (checkBorder(i32(newPos.x), i32(newPos.y))) {
         newPos.x = min(f32(fieldRes.x) - 2, max(1, newPos.x));
         newPos.y = min(f32(fieldRes.y) - 2, max(1, newPos.y));
-        let random = hash(agent.pos.y * f32(fieldRes.x) + agent.pos.x + hash(f32(id.x)) * time);
         agents[id.x].angle = random * 2 * PI;
     }
+
     agents[id.x].pos = newPos;
     fieldStateOut[getPos(vec2u(agent.pos))] = 1;
 }
