@@ -12,6 +12,10 @@ function getRandomValue(v1: number, v2 = 0) {
     return Math.random() * (max - min) + min;
 }
 
+function getInRange(range: [number, number]) {
+    return getRandomValue(...range)
+}
+
 function radians(angle: number) {
     return angle / 180 * Math.PI
 }
@@ -29,6 +33,11 @@ export default class {
     deffuseSpeed: number
     agentParamsCount: number
     wobbling: number
+    speedRange: [number, number]
+    sensorLengthRange: [number, number]
+    sensorSizeRange: [number, number]
+    turnAnglesRange: [number, number][]
+    sensorAnglesRange: [number, number][]
 
     // API Data Structures
     adapter: GPUAdapter;
@@ -88,9 +97,23 @@ export default class {
             Math.ceil(this.fieldResolution[1] / this.workgroupSize)];
         this.workgroupUpdateAgentsCount = Math.ceil(this.numAgents / (this.workgroupSize * this.workgroupSize))
         this.evaporateSpeed = 0.01
-        this.deffuseSpeed = 0.3
+        this.deffuseSpeed = 0.1
         this.agentParamsCount = 16
-        this.wobbling = 0
+        this.wobbling = 0.4
+
+        this.speedRange = [0.5, 2]
+        this.sensorLengthRange = [1, 4]
+        this.sensorSizeRange = [1, 4]
+        this.turnAnglesRange = [
+            [-60, -45],
+            [-15, 15],
+            [45, 60]
+        ]
+        this.sensorAnglesRange = [
+            [-60, -45],
+            [-15, 15],
+            [45, 60]
+        ]
     }
 
     update() {
@@ -116,23 +139,23 @@ export default class {
             this.agentsArray[id + 2] = Math.random() * Math.PI * 2
 
             //     speed: f32
-            this.agentsArray[id + 3] = 1
+            this.agentsArray[id + 3] = getInRange(this.speedRange)
 
             //     sensorLength: f32
-            this.agentsArray[id + 4] = 4
+            this.agentsArray[id + 4] = getInRange(this.sensorLengthRange)
 
             //     sensorSize: f32
-            this.agentsArray[id + 5] = 3
+            this.agentsArray[id + 5] = getInRange(this.sensorSizeRange)
 
             //     turnAngles: vec3f
-            this.agentsArray[id + 8] = radians(-60)
-            this.agentsArray[id + 9] = radians(0)
-            this.agentsArray[id + 10] = radians(60)
+            this.agentsArray[id + 8] = getInRange(this.turnAnglesRange[0])
+            this.agentsArray[id + 9] = getInRange(this.turnAnglesRange[1])
+            this.agentsArray[id + 10] = getInRange(this.turnAnglesRange[2])
 
             //     sensorAngles: vec3f
-            this.agentsArray[id + 12] = radians(-60)
-            this.agentsArray[id + 13] = radians(0)
-            this.agentsArray[id + 14] = radians(60)
+            this.agentsArray[id + 12] = getInRange(this.sensorAnglesRange[0])
+            this.agentsArray[id + 13] = getInRange(this.sensorAnglesRange[1])
+            this.agentsArray[id + 14] = getInRange(this.sensorAnglesRange[2])
         }
     }
 

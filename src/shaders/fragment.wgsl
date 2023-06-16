@@ -8,9 +8,27 @@ fn getCellPos(pos: vec4f) -> u32 {
     return u32(cell.x + cell.y * f32(fieldRes.x));
 }
 
+fn palette1(t: f32) -> vec3f {
+    let a = vec3f(0.5, 0.5, 0.5);
+    let b = vec3f(0.5, 0.5, 0.5);
+    let c = vec3f(0.5, 0.5, 0.5);
+    let d = vec3f(0.5, 0.5, 0.5);
+
+    return a + b * cos(6.28318 * (c * t + d));
+}
+
+fn palette2(t: f32) -> vec3f {
+    let a = vec3f(0, 0.5, 0.5);
+    let b = vec3f(0, 0.5, 0.5);
+    let c = vec3f(0, 0.5, 0.333);
+    let d = vec3f(0, 0.5, 0.478);
+
+    return a + b * cos(6.28318 * (c * t + d));
+}
+
 @fragment
 fn fragmentMain(@builtin(position) pos: vec4f) -> @location(0) vec4f {
     let cellPos = getCellPos(pos);
     let color = f32(fieldState[cellPos]);
-    return vec4f(color, color, color, 1);
+    return vec4f(palette2(color), 1);
 }
