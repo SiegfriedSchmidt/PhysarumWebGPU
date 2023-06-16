@@ -1,41 +1,29 @@
-@group(0) @binding(0) var<uniform> grid: vec2f;
+@group(0) @binding(2) var<uniform> fieldRes: vec2f;
+@group(0) @binding(3) var<storage> fieldStateIn: array<f32>;
+@group(0) @binding(4) var<storage, read_write> fieldStateOut: array<f32>;
 
-@group(0) @binding(1) var<storage> cellStateIn: array<u32>;
-@group(0) @binding(2) var<storage, read_write> cellStateOut: array<u32>;
-
-fn cellIndex(cell: vec2u) -> u32 {
-  return (cell.y % u32(grid.y)) * u32(grid.x) + (cell.x % u32(grid.x));
+fn hash(s: f32) -> f32 {
+    var state = u32(s);
+    state ^= 2747636418;
+    state *= 2654435769;
+    state ^= state >> 16;
+    state *= 2654435769;
+    state ^= state >> 16;
+    return f32(state) / 4294967295;
 }
 
-fn cellActive(x: u32, y: u32) -> u32 {
-  return cellStateIn[cellIndex(vec2(x, y))];
+fn getPos(pos: vec3u) -> u32 {
+    return u32(pos.x + pos.y * u32(fieldRes.x));
 }
 
 @compute @workgroup_size(8, 8)
 fn computeMain(@builtin(global_invocation_id) cell: vec3u) {
-  // Determine how many active neighbors this cell has.
-  let activeNeighbors = cellActive(cell.x + 1, cell.y + 1) +
-                        cellActive(cell.x + 1, cell.y) +
-                        cellActive(cell.x + 1, cell.y - 1) +
-                        cellActive(cell.x, cell.y - 1) +
-                        cellActive(cell.x - 1, cell.y - 1) +
-                        cellActive(cell.x - 1, cell.y) +
-                        cellActive(cell.x - 1, cell.y + 1) +
-                        cellActive(cell.x, cell.y + 1);
-
-
-  let i = cellIndex(cell.xy);
-
-   // Conway's game of life rules:
-  switch (activeNeighbors) {
-    case 2: { // Active cells with 2 neighbors stay active.
-        cellStateOut[i] = cellStateIn[i];
+    if (f32(cell.x) >= fieldRes.x && f32(cell.y) >= fieldRes.y) {
+        return;
     }
-    case 3: { // Cells with 3 neighbors become or stay active.
-      cellStateOut[i] = 1;
+
+    if (cell.x == 10 && cell.y == 31) {
+        let pos = getPos(cell);
+        fieldStateOut[pos] = 1;
     }
-    default: { // Cells with < 2 or > 3 neighbors become inactive.
-      cellStateOut[i] = 0;
-    }
-  }
 }

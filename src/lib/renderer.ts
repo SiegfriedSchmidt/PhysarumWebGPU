@@ -5,9 +5,10 @@ import computeShader from '../shaders/compute.wgsl'
 export default class {
     canvas: HTMLCanvasElement;
     step: number
-    gridSize: number
+    resolution: [number, number]
+    fieldResolution: [number, number]
     workgroupSize: number
-    workgroupCount: number
+    workgroupCount: [number, number]
 
     // API Data Structures
     adapter: GPUAdapter;
@@ -20,12 +21,16 @@ export default class {
 
     // Arrays
     vertexArray: Float32Array
-    uniformArray: Float32Array
-    cellStateArray: Uint32Array
+    uniformTimeArray: Float32Array
+    uniformResolutionArray: Float32Array
+    uniformFieldResolutionArray: Float32Array
+    fieldStateArray: Float32Array
 
     // Buffers
     vertexBuffer: GPUBuffer
-    uniformBuffer: GPUBuffer
+    uniformTimeBuffer: GPUBuffer
+    uniformResolutionBuffer: GPUBuffer
+    uniformFieldResolutionBuffer: GPUBuffer
     cellStateBuffers: GPUBuffer[]
 
     // Layouts
@@ -43,12 +48,15 @@ export default class {
     constructor(canvas: HTMLCanvasElement) {
         this.canvas = canvas
         this.step = 0
-        this.gridSize = 16;
+        this.fieldResolution = [canvas.width / 32, canvas.height / 32];
+        this.resolution = [canvas.width, canvas.height];
         this.workgroupSize = 8;
-        this.workgroupCount = Math.ceil(this.gridSize / this.workgroupSize);
+        this.workgroupCount = [Math.ceil(this.fieldResolution[0] / this.workgroupSize), Math.ceil(this.fieldResolution[1] / this.workgroupSize)];
     }
 
     update() {
+        this.uniformTimeArray[0] += 1 / 60;
+        this.writeBuffer(this.uniformTimeBuffer, this.uniformTimeArray)
         const encoder = this.device.createCommandEncoder();
         this.compute(encoder)
         this.step++
@@ -61,7 +69,7 @@ export default class {
         const computePass = encoder.beginComputePass();
         computePass.setPipeline(this.computePipeline)
         computePass.setBindGroup(0, this.bindGroups[this.step % 2]);
-        computePass.dispatchWorkgroups(this.workgroupCount, this.workgroupCount);
+        computePass.dispatchWorkgroups(this.workgroupCount[0], this.workgroupCount[1]);
         computePass.end();
     }
 
@@ -77,12 +85,13 @@ export default class {
         pass.setPipeline(this.renderPipeline);
         pass.setBindGroup(0, this.bindGroups[this.step % 2]);
         pass.setVertexBuffer(0, this.vertexBuffer);
-        pass.draw(this.vertexArray.length / 2, this.gridSize * this.gridSize);
+        pass.draw(this.vertexArray.length / 2);
         pass.end();
     }
 
     async init() {
         if (await this.initApi()) {
+            console.log(this.resolution, this.fieldResolution)
             this.initCanvas()
             this.createArrays()
             this.createBuffers()
@@ -105,27 +114,33 @@ export default class {
             1, 1,
             -1, 1,
         ]);
-        this.uniformArray = new Float32Array([this.gridSize, this.gridSize]);
-        this.cellStateArray = new Uint32Array(this.gridSize * this.gridSize);
-        for (let i = 0; i < this.cellStateArray.length; ++i) {
-            this.cellStateArray[i] = Math.random() > 0.7 ? 1 : 0;
-        }
+        this.uniformTimeArray = new Float32Array([0]);
+        this.uniformResolutionArray = new Float32Array(this.resolution);
+        this.uniformFieldResolutionArray = new Float32Array(this.fieldResolution);
+        this.fieldStateArray = new Float32Array(this.fieldResolution[0] * this.fieldResolution[1]);
+        // for (let i = 0; i < this.fieldStateArray.length; ++i) {
+        //     this.fieldStateArray[i] = Math.random()
+        // }
     }
 
     createBuffers() {
         this.vertexBuffer = this.createBuffer('vertices', this.vertexArray, GPUBufferUsage.VERTEX)
-        this.uniformBuffer = this.createBuffer('uniform grid', this.uniformArray, GPUBufferUsage.UNIFORM);
+        this.uniformTimeBuffer = this.createBuffer('uniform time', this.uniformTimeArray, GPUBufferUsage.UNIFORM);
+        this.uniformResolutionBuffer = this.createBuffer('uniform resolution', this.uniformResolutionArray, GPUBufferUsage.UNIFORM);
+        this.uniformFieldResolutionBuffer = this.createBuffer('uniform field resolution', this.uniformFieldResolutionArray, GPUBufferUsage.UNIFORM);
         this.cellStateBuffers = [
-            this.createBuffer('Cells state A', this.cellStateArray, GPUBufferUsage.STORAGE),
-            this.createBuffer('Cells state B', this.cellStateArray, GPUBufferUsage.STORAGE)
+            this.createBuffer('Field state A', this.fieldStateArray, GPUBufferUsage.STORAGE),
+            this.createBuffer('Field state B', this.fieldStateArray, GPUBufferUsage.STORAGE)
         ];
     }
 
     writeBuffers() {
         this.writeBuffer(this.vertexBuffer, this.vertexArray)
-        this.writeBuffer(this.uniformBuffer, this.uniformArray)
-        this.writeBuffer(this.cellStateBuffers[0], this.cellStateArray)
-        this.writeBuffer(this.cellStateBuffers[1], this.cellStateArray)
+        this.writeBuffer(this.uniformTimeBuffer, this.uniformTimeArray)
+        this.writeBuffer(this.uniformResolutionBuffer, this.uniformResolutionArray)
+        this.writeBuffer(this.uniformFieldResolutionBuffer, this.uniformFieldResolutionArray)
+        this.writeBuffer(this.cellStateBuffers[0], this.fieldStateArray)
+        this.writeBuffer(this.cellStateBuffers[1], this.fieldStateArray)
     }
 
     createLayouts() {
@@ -134,16 +149,24 @@ export default class {
             label: "Cell Bind Group Layout",
             entries: [{
                 binding: 0,
-                visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT | GPUShaderStage.COMPUTE,
-                buffer: {type: "uniform"} // Grid uniform buffer
+                visibility: GPUShaderStage.FRAGMENT | GPUShaderStage.COMPUTE,
+                buffer: {type: "uniform"}
             }, {
                 binding: 1,
-                visibility: GPUShaderStage.VERTEX | GPUShaderStage.COMPUTE,
-                buffer: {type: "read-only-storage"} // Cell state input buffer
+                visibility: GPUShaderStage.FRAGMENT,
+                buffer: {type: "uniform"}
             }, {
                 binding: 2,
+                visibility: GPUShaderStage.FRAGMENT | GPUShaderStage.COMPUTE,
+                buffer: {type: "uniform"}
+            }, {
+                binding: 3,
+                visibility: GPUShaderStage.FRAGMENT | GPUShaderStage.COMPUTE,
+                buffer: {type: "read-only-storage"}
+            }, {
+                binding: 4,
                 visibility: GPUShaderStage.COMPUTE,
-                buffer: {type: "storage"} // Cell state output buffer
+                buffer: {type: "storage"}
             }]
         });
         this.pipelineLayout = this.device.createPipelineLayout({
@@ -159,12 +182,18 @@ export default class {
                 layout: this.bindGroupLayout,
                 entries: [{
                     binding: 0,
-                    resource: {buffer: this.uniformBuffer}
+                    resource: {buffer: this.uniformTimeBuffer}
                 }, {
                     binding: 1,
+                    resource: {buffer: this.uniformResolutionBuffer}
+                }, {
+                    binding: 2,
+                    resource: {buffer: this.uniformFieldResolutionBuffer}
+                }, {
+                    binding: 3,
                     resource: {buffer: this.cellStateBuffers[0]}
                 }, {
-                    binding: 2, // New Entry
+                    binding: 4,
                     resource: {buffer: this.cellStateBuffers[1]}
                 }],
             }),
@@ -173,12 +202,18 @@ export default class {
                 layout: this.bindGroupLayout,
                 entries: [{
                     binding: 0,
-                    resource: {buffer: this.uniformBuffer}
+                    resource: {buffer: this.uniformTimeBuffer}
                 }, {
                     binding: 1,
+                    resource: {buffer: this.uniformResolutionBuffer}
+                }, {
+                    binding: 2,
+                    resource: {buffer: this.uniformFieldResolutionBuffer}
+                }, {
+                    binding: 3,
                     resource: {buffer: this.cellStateBuffers[1]}
                 }, {
-                    binding: 2, // New Entry
+                    binding: 4,
                     resource: {buffer: this.cellStateBuffers[0]}
                 }],
             }),
@@ -223,6 +258,7 @@ export default class {
             this.device = await this.adapter.requestDevice();
             this.queue = this.device.queue
         } catch (e) {
+            console.log(e)
             return false
         }
         return true
