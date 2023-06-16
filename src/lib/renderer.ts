@@ -2,13 +2,32 @@ import vertexShader from '../shaders/vertex.wgsl'
 import fragmentShader from '../shaders/fragment.wgsl'
 import computeShader from '../shaders/compute.wgsl'
 
+function getTime() {
+    return (new Date()).getMilliseconds()
+}
+
+function getRandomValue(v1: number, v2 = 0) {
+    const max = Math.max(v1, v2)
+    const min = Math.min(v1, v2)
+    return Math.random() * (max - min) + min;
+}
+
+function radians(angle: number) {
+    return angle / 180 * Math.PI
+}
+
 export default class {
     canvas: HTMLCanvasElement;
     step: number
     resolution: [number, number]
     fieldResolution: [number, number]
+    numAgents: number
     workgroupSize: number
-    workgroupCount: [number, number]
+    workgroupProcessFieldCount: [number, number]
+    workgroupUpdateAgentsCount: number
+    evaporateSpeed: number
+    deffuseSpeed: number
+    agentParamsCount: number
 
     // API Data Structures
     adapter: GPUAdapter;
@@ -22,9 +41,13 @@ export default class {
     // Arrays
     vertexArray: Float32Array
     uniformTimeArray: Float32Array
-    uniformResolutionArray: Float32Array
-    uniformFieldResolutionArray: Float32Array
+    uniformResolutionArray: Uint32Array
+    uniformFieldResolutionArray: Uint32Array
     fieldStateArray: Float32Array
+    agentsArray: Float32Array
+    uniformEvaporateSpeedArray: Float32Array
+    uniformDiffuseSpeedArray: Float32Array
+    uniformNumAgentsArray: Uint32Array
 
     // Buffers
     vertexBuffer: GPUBuffer
@@ -32,6 +55,10 @@ export default class {
     uniformResolutionBuffer: GPUBuffer
     uniformFieldResolutionBuffer: GPUBuffer
     cellStateBuffers: GPUBuffer[]
+    agentsBuffer: GPUBuffer
+    uniformEvaporateSpeedBuffer: GPUBuffer
+    uniformDiffuseSpeedBuffer: GPUBuffer
+    uniformNumAgentsBuffer: GPUBuffer
 
     // Layouts
     vertexBufferLayout: GPUVertexBufferLayout
@@ -42,34 +69,61 @@ export default class {
     bindGroups: GPUBindGroup[]
 
     // Pipelines
-    computePipeline: GPUComputePipeline
+    processFieldPipeline: GPUComputePipeline
+    updateAgentsPipeline: GPUComputePipeline
     renderPipeline: GPURenderPipeline
 
     constructor(canvas: HTMLCanvasElement) {
         this.canvas = canvas
         this.step = 0
-        this.fieldResolution = [canvas.width / 32, canvas.height / 32];
+        this.fieldResolution = [canvas.width / 4, canvas.height / 4];
         this.resolution = [canvas.width, canvas.height];
         this.workgroupSize = 8;
-        this.workgroupCount = [Math.ceil(this.fieldResolution[0] / this.workgroupSize), Math.ceil(this.fieldResolution[1] / this.workgroupSize)];
+
+        this.numAgents = 512
+        this.workgroupProcessFieldCount = [Math.ceil(this.fieldResolution[0] / this.workgroupSize),
+            Math.ceil(this.fieldResolution[1] / this.workgroupSize)];
+        this.workgroupUpdateAgentsCount = Math.ceil(this.numAgents / (this.workgroupSize * this.workgroupSize))
+        this.evaporateSpeed = 0.003
+        this.deffuseSpeed = 0.3
+        this.agentParamsCount = 4
     }
 
     update() {
-        this.uniformTimeArray[0] += 1 / 60;
+        this.uniformTimeArray[0] += 1000 / 60;
         this.writeBuffer(this.uniformTimeBuffer, this.uniformTimeArray)
         const encoder = this.device.createCommandEncoder();
-        this.compute(encoder)
+        this.processField(encoder)
+        this.updateAgents(encoder)
         this.step++
         this.render(encoder)
         this.queue.submit([encoder.finish()]);
         requestAnimationFrame(() => this.update())
     }
 
-    compute(encoder: GPUCommandEncoder) {
+    initAgents() {
+        for (let i = 0; i < this.numAgents; i++) {
+            const id = i * this.agentParamsCount
+            this.agentsArray[id] = getRandomValue(10, this.fieldResolution[0] - 10)
+            this.agentsArray[id + 1] = getRandomValue(10, this.fieldResolution[1] - 10)
+            this.agentsArray[id + 2] = 0.4
+            this.agentsArray[id + 3] = Math.random() * Math.PI * 2
+        }
+    }
+
+    processField(encoder: GPUCommandEncoder) {
         const computePass = encoder.beginComputePass();
-        computePass.setPipeline(this.computePipeline)
+        computePass.setPipeline(this.processFieldPipeline)
         computePass.setBindGroup(0, this.bindGroups[this.step % 2]);
-        computePass.dispatchWorkgroups(this.workgroupCount[0], this.workgroupCount[1]);
+        computePass.dispatchWorkgroups(this.workgroupProcessFieldCount[0], this.workgroupProcessFieldCount[1]);
+        computePass.end();
+    }
+
+    updateAgents(encoder: GPUCommandEncoder) {
+        const computePass = encoder.beginComputePass();
+        computePass.setPipeline(this.updateAgentsPipeline)
+        computePass.setBindGroup(0, this.bindGroups[this.step % 2]);
+        computePass.dispatchWorkgroups(this.workgroupUpdateAgentsCount);
         computePass.end();
     }
 
@@ -115,12 +169,17 @@ export default class {
             -1, 1,
         ]);
         this.uniformTimeArray = new Float32Array([0]);
-        this.uniformResolutionArray = new Float32Array(this.resolution);
-        this.uniformFieldResolutionArray = new Float32Array(this.fieldResolution);
+        this.uniformResolutionArray = new Uint32Array(this.resolution);
+        this.uniformFieldResolutionArray = new Uint32Array(this.fieldResolution);
         this.fieldStateArray = new Float32Array(this.fieldResolution[0] * this.fieldResolution[1]);
-        // for (let i = 0; i < this.fieldStateArray.length; ++i) {
+        // for (let i = 0; i < this.fieldStateArray.length; i++) {
         //     this.fieldStateArray[i] = Math.random()
         // }
+        this.agentsArray = new Float32Array(length = this.numAgents * this.agentParamsCount);
+        this.initAgents()
+        this.uniformEvaporateSpeedArray = new Float32Array([this.evaporateSpeed])
+        this.uniformDiffuseSpeedArray = new Float32Array([this.deffuseSpeed])
+        this.uniformNumAgentsArray = new Uint32Array([this.numAgents])
     }
 
     createBuffers() {
@@ -132,6 +191,10 @@ export default class {
             this.createBuffer('Field state A', this.fieldStateArray, GPUBufferUsage.STORAGE),
             this.createBuffer('Field state B', this.fieldStateArray, GPUBufferUsage.STORAGE)
         ];
+        this.agentsBuffer = this.createBuffer('Agents buffer', this.agentsArray, GPUBufferUsage.STORAGE)
+        this.uniformEvaporateSpeedBuffer = this.createBuffer('Evaporate speed buffer', this.uniformEvaporateSpeedArray, GPUBufferUsage.UNIFORM)
+        this.uniformDiffuseSpeedBuffer = this.createBuffer('Diffuse speed buffer', this.uniformDiffuseSpeedArray, GPUBufferUsage.UNIFORM)
+        this.uniformNumAgentsBuffer = this.createBuffer('Diffuse speed buffer', this.uniformDiffuseSpeedArray, GPUBufferUsage.UNIFORM)
     }
 
     writeBuffers() {
@@ -141,6 +204,10 @@ export default class {
         this.writeBuffer(this.uniformFieldResolutionBuffer, this.uniformFieldResolutionArray)
         this.writeBuffer(this.cellStateBuffers[0], this.fieldStateArray)
         this.writeBuffer(this.cellStateBuffers[1], this.fieldStateArray)
+        this.writeBuffer(this.agentsBuffer, this.agentsArray)
+        this.writeBuffer(this.uniformEvaporateSpeedBuffer, this.uniformEvaporateSpeedArray)
+        this.writeBuffer(this.uniformDiffuseSpeedBuffer, this.uniformDiffuseSpeedArray)
+        this.writeBuffer(this.uniformNumAgentsBuffer, this.uniformNumAgentsArray)
     }
 
     createLayouts() {
@@ -167,6 +234,22 @@ export default class {
                 binding: 4,
                 visibility: GPUShaderStage.COMPUTE,
                 buffer: {type: "storage"}
+            }, {
+                binding: 5,
+                visibility: GPUShaderStage.COMPUTE,
+                buffer: {type: "storage"}
+            }, {
+                binding: 6,
+                visibility: GPUShaderStage.COMPUTE,
+                buffer: {type: "uniform"}
+            }, {
+                binding: 7,
+                visibility: GPUShaderStage.COMPUTE,
+                buffer: {type: "uniform"}
+            }, {
+                binding: 8,
+                visibility: GPUShaderStage.COMPUTE,
+                buffer: {type: "uniform"}
             }]
         });
         this.pipelineLayout = this.device.createPipelineLayout({
@@ -195,6 +278,18 @@ export default class {
                 }, {
                     binding: 4,
                     resource: {buffer: this.cellStateBuffers[1]}
+                }, {
+                    binding: 5,
+                    resource: {buffer: this.agentsBuffer}
+                }, {
+                    binding: 6,
+                    resource: {buffer: this.uniformEvaporateSpeedBuffer}
+                }, {
+                    binding: 7,
+                    resource: {buffer: this.uniformDiffuseSpeedBuffer}
+                }, {
+                    binding: 8,
+                    resource: {buffer: this.uniformNumAgentsBuffer}
                 }],
             }),
             this.device.createBindGroup({
@@ -215,6 +310,18 @@ export default class {
                 }, {
                     binding: 4,
                     resource: {buffer: this.cellStateBuffers[0]}
+                }, {
+                    binding: 5,
+                    resource: {buffer: this.agentsBuffer}
+                }, {
+                    binding: 6,
+                    resource: {buffer: this.uniformEvaporateSpeedBuffer}
+                }, {
+                    binding: 7,
+                    resource: {buffer: this.uniformDiffuseSpeedBuffer}
+                }, {
+                    binding: 8,
+                    resource: {buffer: this.uniformNumAgentsBuffer}
                 }],
             }),
         ];
@@ -225,12 +332,21 @@ export default class {
         const vertexModule = this.device.createShaderModule({code: vertexShader});
         const computeModule = this.device.createShaderModule({code: computeShader});
 
-        this.computePipeline = this.device.createComputePipeline({
-            label: "Compute pipeline",
+        this.processFieldPipeline = this.device.createComputePipeline({
+            label: "Process field pipeline",
             layout: this.pipelineLayout,
             compute: {
                 module: computeModule,
-                entryPoint: "computeMain",
+                entryPoint: "processField",
+            }
+        });
+
+        this.updateAgentsPipeline = this.device.createComputePipeline({
+            label: "Update agents pipeline",
+            layout: this.pipelineLayout,
+            compute: {
+                module: computeModule,
+                entryPoint: "updateAgents",
             }
         });
 
