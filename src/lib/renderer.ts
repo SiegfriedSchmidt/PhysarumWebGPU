@@ -30,9 +30,12 @@ export default class {
     workgroupProcessFieldCount: [number, number]
     workgroupUpdateAgentsCount: number
     evaporateSpeed: number
-    deffuseSpeed: number
+    diffuseSpeed: number
     agentParamsCount: number
     wobbling: number
+    pheromone: number
+    maxPheromone: number
+    twistingAngle: number
     speedRange: [number, number]
     sensorLengthRange: [number, number]
     sensorSizeRange: [number, number]
@@ -55,10 +58,7 @@ export default class {
     uniformFieldResolutionArray: Uint32Array
     fieldStateArray: Float32Array
     agentsArray: Float32Array
-    uniformEvaporateSpeedArray: Float32Array
-    uniformDiffuseSpeedArray: Float32Array
-    uniformNumAgentsArray: Uint32Array
-    uniformWobblingArray: Float32Array
+    uniformGlobalParamsArray: Float32Array
 
     // Buffers
     vertexBuffer: GPUBuffer
@@ -67,10 +67,7 @@ export default class {
     uniformFieldResolutionBuffer: GPUBuffer
     cellStateBuffers: GPUBuffer[]
     agentsBuffer: GPUBuffer
-    uniformEvaporateSpeedBuffer: GPUBuffer
-    uniformDiffuseSpeedBuffer: GPUBuffer
-    uniformNumAgentsBuffer: GPUBuffer
-    uniformWobblingBuffer: GPUBuffer
+    uniformGlobalParamsBuffer: GPUBuffer
 
     // Layouts
     vertexBufferLayout: GPUVertexBufferLayout
@@ -88,32 +85,36 @@ export default class {
     constructor(canvas: HTMLCanvasElement) {
         this.canvas = canvas
         this.step = 0
-        this.fieldResolution = [canvas.width, canvas.height];
+        this.fieldResolution = [canvas.width / 16, canvas.height / 16];
         this.resolution = [canvas.width, canvas.height];
         this.workgroupSize = 8;
 
-        this.numAgents = 500000
+        this.agentParamsCount = 16
+        this.numAgents = 1
+        this.evaporateSpeed = 0.02
+        this.diffuseSpeed = 0.1
+        this.wobbling = radians(0)
+        this.pheromone = 0.5
+        this.maxPheromone = 1
+        this.twistingAngle = radians(0)
+
+        this.speedRange = [1, 1]
+        this.sensorLengthRange = [5, 10]
+        this.sensorSizeRange = [1, 3]
+        this.turnAnglesRange = [
+            [-45, -50],
+            [0, 0],
+            [45, 50]
+        ]
+        this.sensorAnglesRange = [
+            [-45, -50],
+            [0, 0],
+            [45, 50]
+        ]
+
         this.workgroupProcessFieldCount = [Math.ceil(this.fieldResolution[0] / this.workgroupSize),
             Math.ceil(this.fieldResolution[1] / this.workgroupSize)];
         this.workgroupUpdateAgentsCount = Math.ceil(this.numAgents / (this.workgroupSize * this.workgroupSize))
-        this.evaporateSpeed = 0.01
-        this.deffuseSpeed = 0.1
-        this.agentParamsCount = 16
-        this.wobbling = 0.4
-
-        this.speedRange = [0.5, 2]
-        this.sensorLengthRange = [1, 4]
-        this.sensorSizeRange = [1, 4]
-        this.turnAnglesRange = [
-            [-60, -45],
-            [-15, 15],
-            [45, 60]
-        ]
-        this.sensorAnglesRange = [
-            [-60, -45],
-            [-15, 15],
-            [45, 60]
-        ]
     }
 
     update() {
@@ -132,9 +133,11 @@ export default class {
         for (let i = 0; i < this.numAgents; i++) {
             const id = i * this.agentParamsCount
             //     pos: vec2f
-            this.agentsArray[id] = this.fieldResolution[0] / 2
-            this.agentsArray[id + 1] = this.fieldResolution[1] / 2
+            // this.agentsArray[id] = this.fieldResolution[0] / 2
+            // this.agentsArray[id + 1] = this.fieldResolution[1] / 2
 
+            this.agentsArray[id] = getInRange([100, this.fieldResolution[0] - 100])
+            this.agentsArray[id + 1] = getInRange([100, this.fieldResolution[1] - 100])
             //     angle: f32
             this.agentsArray[id + 2] = Math.random() * Math.PI * 2
 
@@ -221,12 +224,17 @@ export default class {
         this.uniformFieldResolutionArray = new Uint32Array(this.fieldResolution);
         this.fieldStateArray = new Float32Array(this.fieldResolution[0] * this.fieldResolution[1]);
         this.agentsArray = new Float32Array(length = this.numAgents * this.agentParamsCount);
+        this.uniformGlobalParamsArray = new Float32Array([
+            this.evaporateSpeed,
+            this.diffuseSpeed,
+            this.numAgents,
+            this.wobbling,
+            this.pheromone,
+            this.maxPheromone,
+            this.twistingAngle
+        ])
         this.initAgents()
         console.log(this.agentsArray.byteLength)
-        this.uniformEvaporateSpeedArray = new Float32Array([this.evaporateSpeed])
-        this.uniformDiffuseSpeedArray = new Float32Array([this.deffuseSpeed])
-        this.uniformNumAgentsArray = new Uint32Array([this.numAgents])
-        this.uniformWobblingArray = new Float32Array([this.wobbling])
     }
 
     createBuffers() {
@@ -239,10 +247,7 @@ export default class {
             this.createBuffer('Field state B', this.fieldStateArray, GPUBufferUsage.STORAGE)
         ];
         this.agentsBuffer = this.createBuffer('Agents buffer', this.agentsArray, GPUBufferUsage.STORAGE)
-        this.uniformEvaporateSpeedBuffer = this.createBuffer('Evaporate speed buffer', this.uniformEvaporateSpeedArray, GPUBufferUsage.UNIFORM)
-        this.uniformDiffuseSpeedBuffer = this.createBuffer('Diffuse speed buffer', this.uniformDiffuseSpeedArray, GPUBufferUsage.UNIFORM)
-        this.uniformNumAgentsBuffer = this.createBuffer('Diffuse speed buffer', this.uniformDiffuseSpeedArray, GPUBufferUsage.UNIFORM)
-        this.uniformWobblingBuffer = this.createBuffer('Wobbling buffer', this.uniformWobblingArray, GPUBufferUsage.UNIFORM)
+        this.uniformGlobalParamsBuffer = this.createBuffer('Global params buffer', this.uniformGlobalParamsArray, GPUBufferUsage.UNIFORM)
     }
 
     writeBuffers() {
@@ -253,10 +258,7 @@ export default class {
         this.writeBuffer(this.cellStateBuffers[0], this.fieldStateArray)
         this.writeBuffer(this.cellStateBuffers[1], this.fieldStateArray)
         this.writeBuffer(this.agentsBuffer, this.agentsArray)
-        this.writeBuffer(this.uniformEvaporateSpeedBuffer, this.uniformEvaporateSpeedArray)
-        this.writeBuffer(this.uniformDiffuseSpeedBuffer, this.uniformDiffuseSpeedArray)
-        this.writeBuffer(this.uniformNumAgentsBuffer, this.uniformNumAgentsArray)
-        this.writeBuffer(this.uniformWobblingBuffer, this.uniformWobblingArray)
+        this.writeBuffer(this.uniformGlobalParamsBuffer, this.uniformGlobalParamsArray)
     }
 
     createLayouts() {
@@ -289,19 +291,7 @@ export default class {
                 buffer: {type: "storage"}
             }, {
                 binding: 6,
-                visibility: GPUShaderStage.COMPUTE,
-                buffer: {type: "uniform"}
-            }, {
-                binding: 7,
-                visibility: GPUShaderStage.COMPUTE,
-                buffer: {type: "uniform"}
-            }, {
-                binding: 8,
-                visibility: GPUShaderStage.COMPUTE,
-                buffer: {type: "uniform"}
-            }, {
-                binding: 9,
-                visibility: GPUShaderStage.COMPUTE,
+                visibility: GPUShaderStage.COMPUTE | GPUShaderStage.FRAGMENT,
                 buffer: {type: "uniform"}
             }]
         });
@@ -312,76 +302,43 @@ export default class {
     }
 
     createBindings() {
+        const entries: GPUBindGroupEntry[] = [{
+            binding: 0,
+            resource: {buffer: this.uniformTimeBuffer}
+        }, {
+            binding: 1,
+            resource: {buffer: this.uniformResolutionBuffer}
+        }, {
+            binding: 2,
+            resource: {buffer: this.uniformFieldResolutionBuffer}
+        }, {
+            binding: 3,
+            resource: {buffer: this.cellStateBuffers[0]}
+        }, {
+            binding: 4,
+            resource: {buffer: this.cellStateBuffers[1]}
+        }, {
+            binding: 5,
+            resource: {buffer: this.agentsBuffer}
+        }, {
+            binding: 6,
+            resource: {buffer: this.uniformGlobalParamsBuffer}
+        }]
+
+        const entries2: GPUBindGroupEntry[] = [...entries]
+        entries2[3] = {binding: 3, resource: {buffer: this.cellStateBuffers[1]}}
+        entries2[4] = {binding: 4, resource: {buffer: this.cellStateBuffers[0]}}
+
         this.bindGroups = [
             this.device.createBindGroup({
                 label: "Cell renderer bind group A",
                 layout: this.bindGroupLayout,
-                entries: [{
-                    binding: 0,
-                    resource: {buffer: this.uniformTimeBuffer}
-                }, {
-                    binding: 1,
-                    resource: {buffer: this.uniformResolutionBuffer}
-                }, {
-                    binding: 2,
-                    resource: {buffer: this.uniformFieldResolutionBuffer}
-                }, {
-                    binding: 3,
-                    resource: {buffer: this.cellStateBuffers[0]}
-                }, {
-                    binding: 4,
-                    resource: {buffer: this.cellStateBuffers[1]}
-                }, {
-                    binding: 5,
-                    resource: {buffer: this.agentsBuffer}
-                }, {
-                    binding: 6,
-                    resource: {buffer: this.uniformEvaporateSpeedBuffer}
-                }, {
-                    binding: 7,
-                    resource: {buffer: this.uniformDiffuseSpeedBuffer}
-                }, {
-                    binding: 8,
-                    resource: {buffer: this.uniformNumAgentsBuffer}
-                }, {
-                    binding: 9,
-                    resource: {buffer: this.uniformWobblingBuffer}
-                }],
+                entries: entries,
             }),
             this.device.createBindGroup({
                 label: "Cell renderer bind group B",
                 layout: this.bindGroupLayout,
-                entries: [{
-                    binding: 0,
-                    resource: {buffer: this.uniformTimeBuffer}
-                }, {
-                    binding: 1,
-                    resource: {buffer: this.uniformResolutionBuffer}
-                }, {
-                    binding: 2,
-                    resource: {buffer: this.uniformFieldResolutionBuffer}
-                }, {
-                    binding: 3,
-                    resource: {buffer: this.cellStateBuffers[1]}
-                }, {
-                    binding: 4,
-                    resource: {buffer: this.cellStateBuffers[0]}
-                }, {
-                    binding: 5,
-                    resource: {buffer: this.agentsBuffer}
-                }, {
-                    binding: 6,
-                    resource: {buffer: this.uniformEvaporateSpeedBuffer}
-                }, {
-                    binding: 7,
-                    resource: {buffer: this.uniformDiffuseSpeedBuffer}
-                }, {
-                    binding: 8,
-                    resource: {buffer: this.uniformNumAgentsBuffer}
-                }, {
-                    binding: 9,
-                    resource: {buffer: this.uniformWobblingBuffer}
-                }],
+                entries: entries2,
             }),
         ];
     }
@@ -432,6 +389,8 @@ export default class {
             this.adapter = await navigator.gpu.requestAdapter();
             this.device = await this.adapter.requestDevice();
             this.queue = this.device.queue
+            console.log('Adapter: ', this.adapter)
+            console.log('Device: ', this.device)
         } catch (e) {
             console.log(e)
             return false

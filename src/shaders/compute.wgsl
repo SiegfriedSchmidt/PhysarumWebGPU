@@ -1,3 +1,5 @@
+const PI = 3.14159265359;
+
 struct Agent {
     pos: vec2f,
     angle: f32,
@@ -7,17 +9,23 @@ struct Agent {
     turnAngles: vec3f,
     sensorAngles: vec3f,
 }
-const PI = 3.14159265359;
+
+struct Global {
+    evaporateSpeed: f32,
+    diffuseSpeed: f32,
+    numAgents: f32,
+    wobbling: f32,
+    pheromone: f32,
+    maxPheromone: f32,
+    twistingAngle: f32,
+}
 
 @group(0) @binding(0) var<uniform> time: f32;
 @group(0) @binding(2) var<uniform> fieldRes: vec2u;
 @group(0) @binding(3) var<storage> fieldStateIn: array<f32>;
 @group(0) @binding(4) var<storage, read_write> fieldStateOut: array<f32>;
 @group(0) @binding(5) var<storage, read_write> agents: array<Agent>;
-@group(0) @binding(6) var<uniform> evaporateSpeed: f32;
-@group(0) @binding(7) var<uniform> diffuseSpeed: f32;
-@group(0) @binding(8) var<uniform> numAgents: u32;
-@group(0) @binding(9) var<uniform> wobbling: f32;
+@group(0) @binding(6) var<uniform> global: Global;
 
 
 fn hash(state: f32) -> f32 {
@@ -68,8 +76,8 @@ fn processField(@builtin(global_invocation_id) cell: vec3u) {
 
     let pos = getPos(cell.xy);
 
-    let diffusedValue = lerp(fieldStateIn[pos], sum / 9, diffuseSpeed);
-    fieldStateOut[pos] = max(0, diffusedValue - evaporateSpeed);
+    let diffusedValue = lerp(fieldStateIn[pos], sum / 9, global.diffuseSpeed);
+    fieldStateOut[pos] = min(global.maxPheromone, diffusedValue * (1 - global.evaporateSpeed));
 }
 
 fn sense(agent: Agent, sensorAngleOffset: f32) -> f32 {
@@ -89,7 +97,7 @@ fn sense(agent: Agent, sensorAngleOffset: f32) -> f32 {
 
 @compute @workgroup_size(64)
 fn updateAgents(@builtin(global_invocation_id) id: vec3u) {
-    if (id.x >= numAgents) {
+    if (id.x >= u32(global.numAgents)) {
         return;
     }
     var agent = agents[id.x];
@@ -108,7 +116,8 @@ fn updateAgents(@builtin(global_invocation_id) id: vec3u) {
         moveAngle = agent.turnAngles.z;
     }
 
-    moveAngle += agent.angle + (random * 2 - 1) * wobbling;
+    moveAngle += agent.angle + (random * 2 - 1) * global.wobbling + global.twistingAngle;
+    agents[id.x].angle = moveAngle;
     let direction = vec2f(cos(moveAngle), sin(moveAngle));
     var newPos = agent.pos + direction * agent.speed;
 
@@ -119,5 +128,5 @@ fn updateAgents(@builtin(global_invocation_id) id: vec3u) {
     }
 
     agents[id.x].pos = newPos;
-    fieldStateOut[getPos(vec2u(agent.pos))] = 1;
+    fieldStateOut[getPos(vec2u(agent.pos))] += global.pheromone;
 }
