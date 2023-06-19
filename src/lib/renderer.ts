@@ -1,6 +1,7 @@
 import vertexShader from '../shaders/vertex.wgsl'
 import fragmentShader from '../shaders/fragment.wgsl'
 import computeShader from '../shaders/compute.wgsl'
+import {InfoInterface} from "../index";
 
 function getTime() {
     return (new Date()).getMilliseconds()
@@ -22,6 +23,7 @@ function radians(angle: number) {
 
 export default class {
     canvas: HTMLCanvasElement;
+    info: InfoInterface
     step: number
     resolution: [number, number]
     fieldResolution: [number, number]
@@ -82,35 +84,41 @@ export default class {
     updateAgentsPipeline: GPUComputePipeline
     renderPipeline: GPURenderPipeline
 
-    constructor(canvas: HTMLCanvasElement) {
+    constructor(canvas: HTMLCanvasElement, info: InfoInterface) {
         this.canvas = canvas
+        this.info = info
         this.step = 0
-        this.fieldResolution = [canvas.width / 16, canvas.height / 16];
+        this.fieldResolution = [canvas.width, canvas.height];
         this.resolution = [canvas.width, canvas.height];
         this.workgroupSize = 8;
 
         this.agentParamsCount = 16
-        this.numAgents = 1
-        this.evaporateSpeed = 0.02
+        this.numAgents = 500000
+        this.evaporateSpeed = 0.05
         this.diffuseSpeed = 0.1
-        this.wobbling = radians(0)
-        this.pheromone = 0.5
-        this.maxPheromone = 1
-        this.twistingAngle = radians(0)
+        this.wobbling = 10
+        this.pheromone = 0.1
+        this.maxPheromone = 3
+        this.twistingAngle = 0
 
         this.speedRange = [1, 1]
-        this.sensorLengthRange = [5, 10]
-        this.sensorSizeRange = [1, 3]
+        this.sensorLengthRange = [10, 10]
+        this.sensorSizeRange = [2, 2]
         this.turnAnglesRange = [
-            [-45, -50],
+            [-90, -90],
             [0, 0],
-            [45, 50]
+            [90, 90]
         ]
         this.sensorAnglesRange = [
-            [-45, -50],
+            [-90, -90],
             [0, 0],
-            [45, 50]
+            [90, 90]
         ]
+
+        this.wobbling = radians(this.wobbling)
+        this.twistingAngle = radians(this.twistingAngle)
+        this.turnAnglesRange = this.turnAnglesRange.map(([x, y]) => [radians(x), radians(y)])
+        this.sensorAnglesRange = this.sensorAnglesRange.map(([x, y]) => [radians(x), radians(y)])
 
         this.workgroupProcessFieldCount = [Math.ceil(this.fieldResolution[0] / this.workgroupSize),
             Math.ceil(this.fieldResolution[1] / this.workgroupSize)];
@@ -118,14 +126,19 @@ export default class {
     }
 
     update() {
-        this.uniformTimeArray[0] += 1000 / 60;
-        this.writeBuffer(this.uniformTimeBuffer, this.uniformTimeArray)
+        const t = getTime()
+
         const encoder = this.device.createCommandEncoder();
         this.processField(encoder)
         this.updateAgents(encoder)
         this.step++
         this.render(encoder)
         this.queue.submit([encoder.finish()]);
+
+        const dt = getTime() - t
+        this.info.renderTime.innerText = `${dt} ms`
+        this.uniformTimeArray[0] += dt;
+        this.writeBuffer(this.uniformTimeBuffer, this.uniformTimeArray)
         requestAnimationFrame(() => this.update())
     }
 
@@ -133,11 +146,25 @@ export default class {
         for (let i = 0; i < this.numAgents; i++) {
             const id = i * this.agentParamsCount
             //     pos: vec2f
+            // const r = getRandomValue(500)
+            // const a = radians(getRandomValue(360))
+            // this.agentsArray[id] = this.fieldResolution[0] / 2 + Math.cos(a) * r
+            // this.agentsArray[id + 1] = this.fieldResolution[1] / 2 + Math.sin(a) * r
+
+            const r = 500
+            let x, y;
+            do {
+                x = getRandomValue(-r, r)
+                y =  getRandomValue(-r, r)
+                this.agentsArray[id] = this.fieldResolution[0] / 2 + x
+                this.agentsArray[id + 1] = this.fieldResolution[1] / 2 + y
+            } while (x * x + y * y > r * r)
+
             // this.agentsArray[id] = this.fieldResolution[0] / 2
             // this.agentsArray[id + 1] = this.fieldResolution[1] / 2
 
-            this.agentsArray[id] = getInRange([100, this.fieldResolution[0] - 100])
-            this.agentsArray[id + 1] = getInRange([100, this.fieldResolution[1] - 100])
+            // this.agentsArray[id] = getInRange([100, this.fieldResolution[0] - 100])
+            // this.agentsArray[id + 1] = getInRange([100, this.fieldResolution[1] - 100])
             //     angle: f32
             this.agentsArray[id + 2] = Math.random() * Math.PI * 2
 
@@ -150,10 +177,17 @@ export default class {
             //     sensorSize: f32
             this.agentsArray[id + 5] = getInRange(this.sensorSizeRange)
 
+            // alignment padding
+            this.agentsArray[id + 6] = 0
+            this.agentsArray[id + 7] = 0
+
             //     turnAngles: vec3f
             this.agentsArray[id + 8] = getInRange(this.turnAnglesRange[0])
             this.agentsArray[id + 9] = getInRange(this.turnAnglesRange[1])
             this.agentsArray[id + 10] = getInRange(this.turnAnglesRange[2])
+
+            // alignment padding
+            this.agentsArray[id + 11] = 0
 
             //     sensorAngles: vec3f
             this.agentsArray[id + 12] = getInRange(this.sensorAnglesRange[0])
@@ -223,7 +257,7 @@ export default class {
         this.uniformResolutionArray = new Uint32Array(this.resolution);
         this.uniformFieldResolutionArray = new Uint32Array(this.fieldResolution);
         this.fieldStateArray = new Float32Array(this.fieldResolution[0] * this.fieldResolution[1]);
-        this.agentsArray = new Float32Array(length = this.numAgents * this.agentParamsCount);
+        this.agentsArray = new Float32Array(this.numAgents * this.agentParamsCount);
         this.uniformGlobalParamsArray = new Float32Array([
             this.evaporateSpeed,
             this.diffuseSpeed,
@@ -238,16 +272,16 @@ export default class {
     }
 
     createBuffers() {
-        this.vertexBuffer = this.createBuffer('vertices', this.vertexArray, GPUBufferUsage.VERTEX)
-        this.uniformTimeBuffer = this.createBuffer('uniform time', this.uniformTimeArray, GPUBufferUsage.UNIFORM);
-        this.uniformResolutionBuffer = this.createBuffer('uniform resolution', this.uniformResolutionArray, GPUBufferUsage.UNIFORM);
-        this.uniformFieldResolutionBuffer = this.createBuffer('uniform field resolution', this.uniformFieldResolutionArray, GPUBufferUsage.UNIFORM);
+        this.vertexBuffer = this.createBuffer('vertices', this.vertexArray, GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST)
+        this.uniformTimeBuffer = this.createBuffer('uniform time', this.uniformTimeArray, GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST);
+        this.uniformResolutionBuffer = this.createBuffer('uniform resolution', this.uniformResolutionArray, GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST);
+        this.uniformFieldResolutionBuffer = this.createBuffer('uniform field resolution', this.uniformFieldResolutionArray, GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST);
         this.cellStateBuffers = [
             this.createBuffer('Field state A', this.fieldStateArray, GPUBufferUsage.STORAGE),
             this.createBuffer('Field state B', this.fieldStateArray, GPUBufferUsage.STORAGE)
         ];
-        this.agentsBuffer = this.createBuffer('Agents buffer', this.agentsArray, GPUBufferUsage.STORAGE)
-        this.uniformGlobalParamsBuffer = this.createBuffer('Global params buffer', this.uniformGlobalParamsArray, GPUBufferUsage.UNIFORM)
+        this.agentsBuffer = this.createBuffer('Agents buffer', this.agentsArray, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST)
+        this.uniformGlobalParamsBuffer = this.createBuffer('Global params buffer', this.uniformGlobalParamsArray, GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST)
     }
 
     writeBuffers() {
@@ -255,8 +289,6 @@ export default class {
         this.writeBuffer(this.uniformTimeBuffer, this.uniformTimeArray)
         this.writeBuffer(this.uniformResolutionBuffer, this.uniformResolutionArray)
         this.writeBuffer(this.uniformFieldResolutionBuffer, this.uniformFieldResolutionArray)
-        this.writeBuffer(this.cellStateBuffers[0], this.fieldStateArray)
-        this.writeBuffer(this.cellStateBuffers[1], this.fieldStateArray)
         this.writeBuffer(this.agentsBuffer, this.agentsArray)
         this.writeBuffer(this.uniformGlobalParamsBuffer, this.uniformGlobalParamsArray)
     }
@@ -411,7 +443,7 @@ export default class {
         return this.device.createBuffer({
             label: label,
             size: array.byteLength,
-            usage: usage | GPUBufferUsage.COPY_DST,
+            usage: usage,
         });
     }
 

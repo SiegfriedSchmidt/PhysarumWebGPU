@@ -28,10 +28,10 @@ fn palette1(t: f32) -> vec3f {
 }
 
 fn palette2(t: f32) -> vec3f {
-    let a = vec3f(0, 0.5, 0.5);
-    let b = vec3f(0, 0.5, 0.5);
-    let c = vec3f(0, 0.5, 0.333);
-    let d = vec3f(0, 0.5, 0.478);
+    let a = vec3f(0.548, 0.248, 0.500);
+    let b = vec3f(-0.572, 0.498, 1.098);
+    let c = vec3f(1.158, -1.402, 0.118);
+    let d = vec3f(0.000, 0.333, 0.667);
 
     return a + b * cos(6.28318 * (c * t + d));
 }

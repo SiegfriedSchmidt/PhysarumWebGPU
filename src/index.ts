@@ -1,8 +1,15 @@
 import "./styles/main.css"
 import Renderer from "./lib/renderer";
 
+export interface InfoInterface {
+    renderTime: HTMLParagraphElement
+}
+
+const infoRenderTime = document.getElementById('renderTime') as HTMLParagraphElement
+const info: InfoInterface = {renderTime: infoRenderTime}
+
 const canvas = document.getElementById('root') as HTMLCanvasElement
-const renderer = new Renderer(canvas)
+const renderer = new Renderer(canvas, info)
 if (await renderer.init()) {
     renderer.update()
 } else {
