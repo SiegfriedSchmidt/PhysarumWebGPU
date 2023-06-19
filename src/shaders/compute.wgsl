@@ -51,7 +51,7 @@ fn getVal(x: u32, y: u32) -> f32 {
     if (checkBorder(i32(x), i32(y))) {
         return 0;
     }
-    return fieldStateOut[getPos(vec2u(x, y))];
+    return fieldStateIn[getPos(vec2u(x, y))];
 }
 
 fn lerp(start: f32, end: f32, t: f32) -> f32 {
