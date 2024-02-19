@@ -4,6 +4,7 @@ const MiniCssExtractPlugin = require('mini-css-extract-plugin');
 const CssMinimizerPlugin = require("css-minimizer-webpack-plugin");
 const CopyWebpackPlugin = require('copy-webpack-plugin')
 const TerserWebpackPlugin = require('terser-webpack-plugin')
+const {readFileSync} = require("fs");
 
 const isProd = process.env.NODE_ENV === 'production'
 const isDev = !isProd
@@ -44,8 +45,12 @@ module.exports = {
         },
         open: true,
         compress: true,
-        https: false,
-        host: 'localhost',
+        https: {
+            key: readFileSync("certs/tls.key"),
+            cert: readFileSync("certs/tls.crt"),
+            ca: readFileSync("certs/tls.csr"),
+        },
+        host: '0.0.0.0',
         port: 8080
     },
     plugins: [
