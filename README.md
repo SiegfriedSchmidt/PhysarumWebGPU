@@ -12,4 +12,4 @@ $ cd PhysarumWebGPU
 $ npm i
 $ npm run serve
 ```
-Сайт будет доступен по адресу: *http://localhost:8080
+Сайт будет доступен по адресу: *http://localhost:8080*
