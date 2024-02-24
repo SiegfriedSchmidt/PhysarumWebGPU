@@ -10,7 +10,7 @@
     "watch": "webpack --watch --mode=development",
     "serve": "webpack serve --mode=development",
     "predeploy" : "npm run build",
-    "deploy" : "gh-pages -d build"
+    "deploy" : "gh-pages -d dist"
   },
   "browserslist": [
     ">0.2%",
