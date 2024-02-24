@@ -40,5 +40,5 @@ fn palette2(t: f32) -> vec3f {
 fn fragmentMain(@builtin(position) pos: vec4f) -> @location(0) vec4f {
     let cellPos = getCellPos(pos);
     let color = f32(min(fieldState[cellPos], global.maxPheromone)) / global.maxPheromone;
-    return vec4f(palette1(color), 1);
+    return vec4f(palette2(color), 1);
 }
