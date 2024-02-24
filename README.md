@@ -1,5 +1,6 @@
 # Physarum simulation
 Симуляция простейшего организма *Physarum* с использованием вычислений на графическом процессоре и технологии *WebGPU*
+Demo *https://siegfriedschmidt.github.io/PhysarumWebGPU/*
 
 ## *Использование*
 ### Требования
