@@ -45,11 +45,12 @@ module.exports = {
         },
         open: true,
         compress: true,
-        https: {
-            key: readFileSync("certs/tls.key"),
-            cert: readFileSync("certs/tls.crt"),
-            ca: readFileSync("certs/tls.csr"),
-        },
+        https: false,
+        // https: {
+        //     key: readFileSync("certs/tls.key"),
+        //     cert: readFileSync("certs/tls.crt"),
+        //     ca: readFileSync("certs/tls.csr"),
+        // },
         host: '0.0.0.0',
         port: 8080
     },
