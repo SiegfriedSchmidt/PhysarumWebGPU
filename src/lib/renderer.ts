@@ -84,7 +84,7 @@ export default class {
     updateAgentsPipeline: GPUComputePipeline
     renderPipeline: GPURenderPipeline
 
-    constructor(canvas: HTMLCanvasElement, info: InfoInterface) {
+    constructor(canvas: HTMLCanvasElement, info: InfoInterface, numAgents: number) {
         this.canvas = canvas
         this.info = info
         this.step = 0
@@ -93,7 +93,7 @@ export default class {
         this.workgroupSize = 8;
 
         this.agentParamsCount = 16
-        this.numAgents = 500000
+        this.numAgents = numAgents
         this.evaporateSpeed = 0.05
         this.diffuseSpeed = 0.1
         this.wobbling = 10
@@ -151,11 +151,11 @@ export default class {
             // this.agentsArray[id] = this.fieldResolution[0] / 2 + Math.cos(a) * r
             // this.agentsArray[id + 1] = this.fieldResolution[1] / 2 + Math.sin(a) * r
 
-            const r = 500
+            const r = Math.min(this.fieldResolution[0], this.fieldResolution[1]) / 3
             let x, y;
             do {
                 x = getRandomValue(-r, r)
-                y =  getRandomValue(-r, r)
+                y = getRandomValue(-r, r)
                 this.agentsArray[id] = this.fieldResolution[0] / 2 + x
                 this.agentsArray[id + 1] = this.fieldResolution[1] / 2 + y
             } while (x * x + y * y > r * r)

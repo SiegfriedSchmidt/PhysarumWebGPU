@@ -8,8 +8,15 @@ export interface InfoInterface {
 const infoRenderTime = document.getElementById('renderTime') as HTMLParagraphElement
 const info: InfoInterface = {renderTime: infoRenderTime}
 
+let num_agents = Number(prompt('Select the number of particles', '10000'))
+if (!(num_agents >= 1 && num_agents <= 10000000)) {
+    num_agents = 10000
+}
+
 const canvas = document.getElementById('root') as HTMLCanvasElement
-const renderer = new Renderer(canvas, info)
+canvas.width = window.innerWidth
+canvas.height = window.innerHeight
+const renderer = new Renderer(canvas, info, num_agents)
 if (await renderer.init()) {
     renderer.update()
 } else {
